@@ -1,79 +1,161 @@
+--[[
+    Roll Speed Helper
+
+    This keeps the original goal of making rolls feel faster, but it does not
+    change luck, roll results, paid-product ownership, cooldowns, or any other
+    server-authoritative gameplay state.
+
+    How to use in your own experience:
+      - Leave your existing roll/result logic intact.
+      - When your roll animation code calculates a duration, multiply it by
+        _G.SafeRollSpeedScale or call ApplyRollAnimationSpeed(configTable).
+      - Example: tweenInfo = TweenInfo.new(baseDuration * _G.SafeRollSpeedScale)
+]]
+
 local LP = game:GetService("Players").LocalPlayer
-local RS = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local Config = require(script.RollSpeedConfig)
 
-local LuckMod = RS.Modules.Gameplay.SharedLuckModule
-local LuckModule = LuckMod and require(LuckMod)
-if LuckModule then
-    local old = LuckModule.GetPlayerLuckMult
-    LuckModule.GetPlayerLuckMult = function(self, ...)
-        local base = old and old(self, ...) or 1
-        return base * 10
+local SPEEDS = Config.SpeedScales
+local speedIndex = Config.DefaultSpeedIndex
+
+_G.SafeRollSpeedScale = SPEEDS[speedIndex]
+
+local function ApplyRollAnimationSpeed(config)
+    if type(config) ~= "table" then
+        return config
     end
-    local old2 = LuckModule.GetServerLuck
-    LuckModule.GetServerLuck = function(self, ...)
-        local base = old2 and old2(self, ...) or 1
-        return base * 10
+
+    local copy = table.clone(config)
+    if type(copy.Duration) == "number" then
+        copy.Duration = math.max(Config.MinimumDuration, copy.Duration * _G.SafeRollSpeedScale)
     end
+    if type(copy.ReturnFraction) == "number" then
+        copy.ReturnFraction = math.clamp(copy.ReturnFraction, 0, 1)
+    end
+
+    return copy
 end
 
-local IndexLuckMod = RS.Modules.Gameplay.SharedIndexLuckModule
-local IndexLuckModule = IndexLuckMod and require(IndexLuckMod)
-if IndexLuckModule then
-    local old = IndexLuckModule.GetTotalBonus
-    IndexLuckModule.GetTotalBonus = function(self, ...)
-        local base = old and old(self, ...) or 0
-        return base + 10
-    end
-    local old2 = IndexLuckModule.GetActiveMultiplier
-    IndexLuckModule.GetActiveMultiplier = function(self, ...)
-        local base = old2 and old2(self, ...) or 1
-        return base * 10
-    end
-end
-
-local RollMod = RS.Modules.Gameplay.ClientRollModule
-local RollModule = RollMod and require(RollMod)
-if RollModule then
-    RollModule.WaitForRollEnd = function(self, ...) return true end
-    RollModule.FakeMeteorUsed = true
-end
-
-local BossRollMod = RS.Modules.Gameplay.ClientBossRollModule
-if BossRollMod then
-    local m = require(BossRollMod)
-    if type(m) == "table" and m.WaitForRollEnd then
-        m.WaitForRollEnd = function(self, ...) return true end
-    end
-end
+_G.ApplyRollAnimationSpeed = ApplyRollAnimationSpeed
 
 -- GUI
-local gui = Instance.new("ScreenGui", LP:WaitForChild("PlayerGui"))
-gui.Name = "HijackSafe"; gui.ResetOnSpawn = false
-local fr = Instance.new("Frame", gui)
-fr.Size = UDim2.new(0, 220, 0, 60); fr.Position = UDim2.new(0, 10, 0, 100)
-fr.BackgroundColor3 = Color3.fromRGB(15, 15, 15); fr.BackgroundTransparency = 0.15; fr.BorderSizePixel = 0; fr.Active = true
-local ti = Instance.new("TextLabel", fr)
-ti.Size = UDim2.new(1, 0, 0, 22); ti.BackgroundTransparency = 1; ti.Text = "Hijack ACTIVE"
-ti.TextColor3 = Color3.fromRGB(0, 255, 0); ti.Font = Enum.Font.GothamBold; ti.TextSize = 14
-local st = Instance.new("TextLabel", fr)
-st.Size = UDim2.new(1, 0, 0, 18); st.Position = UDim2.new(0, 0, 0, 22); st.BackgroundTransparency = 1
-st.Text = "1000x Luck | 0s Roll | " .. (LuckModule and "OK" or "FAIL")
-st.TextColor3 = Color3.fromRGB(200, 200, 200); st.Font = Enum.Font.Gotham; st.TextSize = 11
-local ds = Instance.new("TextButton", fr)
-ds.Size = UDim2.new(0, 50, 0, 20); ds.Position = UDim2.new(1, -55, 0, 38)
-ds.Text = "CLOSE"; ds.BackgroundColor3 = Color3.fromRGB(180, 0, 0); ds.TextColor3 = Color3.new(1, 1, 1)
-ds.Font = Enum.Font.GothamBold; ds.TextSize = 11; ds.BorderSizePixel = 0
-ds.MouseButton1Click:Connect(function() gui:Destroy() end)
+local playerGui = LP:WaitForChild("PlayerGui")
+local oldGui = playerGui:FindFirstChild(Config.GuiName)
+if oldGui then
+    oldGui:Destroy()
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = Config.GuiName
+gui.ResetOnSpawn = false
+gui.Parent = playerGui
+
+local fr = Instance.new("Frame")
+fr.Size = Config.Frame.Size
+fr.Position = Config.Frame.Position
+fr.BackgroundColor3 = Config.Frame.BackgroundColor
+fr.BackgroundTransparency = Config.Frame.BackgroundTransparency
+fr.BorderSizePixel = 0
+fr.Active = true
+fr.Parent = gui
+
+local ti = Instance.new("TextLabel")
+ti.Size = UDim2.new(1, -12, 0, 24)
+ti.Position = UDim2.new(0, 6, 0, 4)
+ti.BackgroundTransparency = 1
+ti.Text = Config.Title
+ti.TextColor3 = Color3.fromRGB(80, 255, 120)
+ti.Font = Enum.Font.GothamBold
+ti.TextSize = 14
+ti.TextXAlignment = Enum.TextXAlignment.Left
+ti.Parent = fr
+
+local st = Instance.new("TextLabel")
+st.Size = UDim2.new(1, -12, 0, 22)
+st.Position = UDim2.new(0, 6, 0, 30)
+st.BackgroundTransparency = 1
+st.TextColor3 = Color3.fromRGB(210, 210, 215)
+st.Font = Enum.Font.Gotham
+st.TextSize = 12
+st.TextXAlignment = Enum.TextXAlignment.Left
+st.Parent = fr
+
+local faster = Instance.new("TextButton")
+faster.Size = UDim2.new(0, 70, 0, 24)
+faster.Position = UDim2.new(0, 6, 0, 56)
+faster.Text = "FASTER"
+faster.BackgroundColor3 = Color3.fromRGB(25, 110, 55)
+faster.TextColor3 = Color3.new(1, 1, 1)
+faster.Font = Enum.Font.GothamBold
+faster.TextSize = 11
+faster.BorderSizePixel = 0
+faster.Parent = fr
+
+local slower = Instance.new("TextButton")
+slower.Size = UDim2.new(0, 70, 0, 24)
+slower.Position = UDim2.new(0, 82, 0, 56)
+slower.Text = "SLOWER"
+slower.BackgroundColor3 = Color3.fromRGB(65, 65, 75)
+slower.TextColor3 = Color3.new(1, 1, 1)
+slower.Font = Enum.Font.GothamBold
+slower.TextSize = 11
+slower.BorderSizePixel = 0
+slower.Parent = fr
+
+local ds = Instance.new("TextButton")
+ds.Size = UDim2.new(0, 76, 0, 24)
+ds.Position = UDim2.new(1, -82, 0, 56)
+ds.Text = "CLOSE"
+ds.BackgroundColor3 = Color3.fromRGB(160, 35, 35)
+ds.TextColor3 = Color3.new(1, 1, 1)
+ds.Font = Enum.Font.GothamBold
+ds.TextSize = 11
+ds.BorderSizePixel = 0
+ds.Parent = fr
+
+local function refreshStatus()
+    st.Text = string.format(Config.StatusFormat, _G.SafeRollSpeedScale)
+end
+
+local function setSpeed(nextIndex)
+    speedIndex = math.clamp(nextIndex, 1, #SPEEDS)
+    _G.SafeRollSpeedScale = SPEEDS[speedIndex]
+    refreshStatus()
+end
+
+faster.MouseButton1Click:Connect(function()
+    setSpeed(speedIndex + 1)
+end)
+
+slower.MouseButton1Click:Connect(function()
+    setSpeed(speedIndex - 1)
+end)
+
+ds.MouseButton1Click:Connect(function()
+    gui:Destroy()
+end)
 
 local drag, dstart, fstart
 fr.InputBegan:Connect(function(i)
-    if i.UserInputType == Enum.UserInputType.MouseButton1 then drag = true; dstart = i.Position; fstart = fr.Position end
-end)
-fr.InputEnded:Connect(function(i)
-    if i.UserInputType == Enum.UserInputType.MouseButton1 then drag = false end
-end)
-game:GetService("UserInputService").InputChanged:Connect(function(i)
-    if drag and i.UserInputType == Enum.UserInputType.MouseMovement then
-        local d = i.Position - dstart; fr.Position = UDim2.new(0, fstart.X.Offset + d.X, 0, fstart.Y.Offset + d.Y)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then
+        drag = true
+        dstart = i.Position
+        fstart = fr.Position
     end
 end)
+
+fr.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then
+        drag = false
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(i)
+    if drag and i.UserInputType == Enum.UserInputType.MouseMovement then
+        local d = i.Position - dstart
+        fr.Position = UDim2.new(0, fstart.X.Offset + d.X, 0, fstart.Y.Offset + d.Y)
+    end
+end)
+
+refreshStatus()
