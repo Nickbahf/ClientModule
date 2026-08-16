@@ -1,0 +1,14 @@
+return {
+    GuiName = "RollSpeedHelper",
+    Title = "Roll Speed Helper",
+    StatusFormat = "Animation only | duration scale %.2fx",
+    SpeedScales = { 1, 0.75, 0.5, 0.25, 0.1 },
+    DefaultSpeedIndex = 3,
+    MinimumDuration = 0.05,
+    Frame = {
+        Size = UDim2.new(0, 240, 0, 86),
+        Position = UDim2.new(0, 10, 0, 100),
+        BackgroundColor = Color3.fromRGB(15, 15, 18),
+        BackgroundTransparency = 0.12,
+    },
+}
